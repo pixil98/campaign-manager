@@ -75,7 +75,7 @@ func (a *app) login(cmd *cobra.Command) error {
 	_, _ = fmt.Fprintf(stderr, "To log in, open this link and check it shows the code %s:\n\n    %s\n\nWaiting for you to log in...\n", auth.UserCode, link)
 	token, err := oc.DeviceAccessToken(ctx, auth)
 	if err != nil {
-		return fmt.Errorf("logging in: %w", err)
+		return fmt.Errorf("logging in: %w", deviceLoginError(cmd.Context(), err))
 	}
 
 	// Asking who the token is for checks the server takes it before it is
@@ -104,6 +104,23 @@ func (a *app) login(cmd *cobra.Command) error {
 		_, _ = fmt.Fprintf(stderr, "%s is now your default server.\n", server)
 	}
 	return nil
+}
+
+// deviceLoginError explains why a device login ended without a token. ctx is
+// the command's own, which is only done when the command was interrupted.
+func deviceLoginError(ctx context.Context, err error) error {
+	var refused *oauth2.RetrieveError
+	errors.As(err, &refused)
+	switch {
+	case ctx.Err() != nil:
+		return ctx.Err()
+	case errors.Is(err, context.DeadlineExceeded) || (refused != nil && refused.ErrorCode == "expired_token"):
+		// The device code's own expiry, which DeviceAccessToken waits until.
+		return errors.New(`the link expired before the login was finished; run "mpr login" again`)
+	case refused != nil && refused.ErrorCode == "access_denied":
+		return errors.New("the login was declined")
+	}
+	return err
 }
 
 func newLogoutCmd(a *app) *cobra.Command {

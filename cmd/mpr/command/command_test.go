@@ -29,6 +29,12 @@ const testClientId = "campaign-manager"
 type fakeAuthentik struct {
 	*httptest.Server
 
+	// deviceError, when set, is the token endpoint's answer to a device
+	// login instead of a token, and deviceExpiresIn how long the login's
+	// code lasts.
+	deviceError     string
+	deviceExpiresIn int
+
 	mu       sync.Mutex
 	issued   int
 	refresh  map[string]bool // refresh tokens still good
@@ -38,7 +44,7 @@ type fakeAuthentik struct {
 
 func newFakeAuthentik(t *testing.T) *fakeAuthentik {
 	t.Helper()
-	f := &fakeAuthentik{refresh: map[string]bool{}}
+	f := &fakeAuthentik{refresh: map[string]bool{}, deviceExpiresIn: 60}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
 		writeTestJSON(w, http.StatusOK, map[string]any{
@@ -57,7 +63,7 @@ func newFakeAuthentik(t *testing.T) *fakeAuthentik {
 			"user_code":                 "ABCD1234",
 			"verification_uri":          f.URL + "/device-login",
 			"verification_uri_complete": f.URL + "/device-login?code=ABCD1234",
-			"expires_in":                60,
+			"expires_in":                f.deviceExpiresIn,
 			"interval":                  1,
 		})
 	})
@@ -69,6 +75,10 @@ func newFakeAuthentik(t *testing.T) *fakeAuthentik {
 		case "urn:ietf:params:oauth:grant-type:device_code":
 			if r.PostForm.Get("device_code") != "device-code" {
 				writeTestJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_grant"})
+				return
+			}
+			if f.deviceError != "" {
+				writeTestJSON(w, http.StatusBadRequest, map[string]string{"error": f.deviceError})
 				return
 			}
 		case "refresh_token":
@@ -265,6 +275,42 @@ func TestLogin(t *testing.T) {
 	}
 	if cfg.Server != e.api.URL {
 		t.Errorf("default server = %q, want %q", cfg.Server, e.api.URL)
+	}
+}
+
+func TestLoginNotFinished(t *testing.T) {
+	tests := map[string]struct {
+		deviceError     string
+		deviceExpiresIn int
+		wantErr         string
+	}{
+		"the link expired": {
+			deviceError: "authorization_pending", deviceExpiresIn: 2,
+			wantErr: `the link expired before the login was finished; run "mpr login" again`,
+		},
+		"authentik says it expired": {
+			deviceError: "expired_token", deviceExpiresIn: 60,
+			wantErr: `the link expired before the login was finished`,
+		},
+		"declined": {
+			deviceError: "access_denied", deviceExpiresIn: 60,
+			wantErr: "the login was declined",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			e := newTestEnv(t)
+			e.authentik.deviceError, e.authentik.deviceExpiresIn = tt.deviceError, tt.deviceExpiresIn
+
+			_, _, err := e.run(t, "login", "--server", e.api.URL)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("login error = %v, want it to contain %q", err, tt.wantErr)
+			}
+			if e.savedLogin(t) != nil {
+				t.Error("a login was saved")
+			}
+		})
 	}
 }
 

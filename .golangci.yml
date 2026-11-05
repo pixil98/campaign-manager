@@ -1,0 +1,11 @@
+version: "2"
+
+linters:
+  enable:
+    - revive
+  settings:
+    revive:
+      rules:
+        # Project convention: use Id (not ID) for identifiers.
+        - name: var-naming
+          disabled: true

@@ -1,0 +1,6 @@
+.git/
+.github/
+bin/
+*.md
+# A local config holds API tokens; keep it out of the build context.
+config.json

@@ -1,0 +1,5 @@
+.DS_Store
+/bin
+/campaign-manager
+# A local config holds API tokens; config.example.json is the committed one.
+/config.json

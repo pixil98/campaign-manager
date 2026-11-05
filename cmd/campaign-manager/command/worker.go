@@ -60,8 +60,9 @@ func BuildWorkers(config any) (service.WorkerList, error) {
 		TemplatesNamespace:  cfg.Wiki.TemplatesNamespace,
 	})
 
+	login := api.Login{Issuer: cfg.OIDC.Issuer, ClientId: cfg.OIDC.ClientId, Scopes: auth.Scopes}
 	return service.WorkerList{
-		"api":        api.NewServer(cfg.Listen, verifier, manager),
+		"api":        api.NewServer(cfg.Listen, login, verifier, manager),
 		"reconciler": campaign.NewReconciler(manager, time.Duration(cfg.ReconcileInterval)),
 	}, nil
 }

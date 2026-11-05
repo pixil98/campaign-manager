@@ -56,7 +56,8 @@ var olive = campaign.Caller{Username: "olive", Roles: map[campaign.Slug][]campai
 
 func serve(t *testing.T, c *fakeCampaigns, method, path, token, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	srv := NewServer(":0", fakeAuth{"good": olive}, c)
+	login := Login{Issuer: "https://auth.example.com/application/o/campaign-manager/", ClientId: "campaign-manager", Scopes: []string{"openid"}}
+	srv := NewServer(":0", login, fakeAuth{"good": olive}, c)
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -76,6 +77,10 @@ func TestRoutes(t *testing.T) {
 		"health needs no token": {
 			method: "GET", path: "/healthz",
 			wantStatus: http.StatusOK, wantBody: "ok",
+		},
+		"how to log in needs no token": {
+			method: "GET", path: "/auth",
+			wantStatus: http.StatusOK, wantBody: `"client_id":"campaign-manager"`,
 		},
 		"no token": {
 			method: "POST", path: "/campaigns", body: `{"slug": "epic"}`,

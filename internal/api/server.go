@@ -1,11 +1,12 @@
 // Package api serves campaign management over HTTP.
 //
 //	GET  /healthz                    liveness, no token needed
+//	GET  /auth                       how to get a token the API takes, no token needed
 //	GET  /me                         the caller, as their token describes them
 //	POST /campaigns                  create a campaign (admins)
 //	POST /campaigns/{slug}/members   add or invite a person (admins, the campaign's officers)
 //
-// Every route but /healthz needs an authentik token as a bearer token.
+// Every other route needs an authentik token as a bearer token.
 package api
 
 import (
@@ -33,6 +34,15 @@ type Campaigns interface {
 	Invite(ctx context.Context, caller campaign.Caller, slug string, req campaign.InviteRequest) (*campaign.Invited, error)
 }
 
+// Login tells a client how to get a token the API takes: the authentik
+// provider to ask, and the scopes the API reads callers from. mpr reads it,
+// so the only setting the CLI needs is the server's address.
+type Login struct {
+	Issuer   string   `json:"issuer"`
+	ClientId string   `json:"client_id"`
+	Scopes   []string `json:"scopes"`
+}
+
 // maxBody bounds a request body; every request is a few short fields.
 const maxBody = 64 << 10
 
@@ -42,12 +52,16 @@ type Server struct {
 	handler http.Handler
 }
 
-// NewServer returns the API on addr, checking callers with auth.
-func NewServer(addr string, auth Authenticator, campaigns Campaigns) *Server {
+// NewServer returns the API on addr, telling clients how to log in with login
+// and checking callers with auth.
+func NewServer(addr string, login Login, auth Authenticator, campaigns Campaigns) *Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))
+	})
+	mux.HandleFunc("GET /auth", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, login)
 	})
 	h := &handlers{campaigns: campaigns}
 	mux.Handle("GET /me", authenticated(auth, h.me))

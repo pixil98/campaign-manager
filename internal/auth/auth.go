@@ -28,6 +28,11 @@ func NewVerifier(ctx context.Context, issuer, clientId string) (*Verifier, error
 	return &Verifier{verifier: provider.Verifier(&oidc.Config{ClientID: clientId})}, nil
 }
 
+// Scopes are the scopes a token needs for Caller to read the caller from it:
+// profile brings preferred_username, and campaigns brings campaigns and
+// mapper_admin.
+var Scopes = []string{oidc.ScopeOpenID, "profile", "campaigns"}
+
 // claims are the token claims a caller is read from. Campaigns and
 // MapperAdmin come from the same scope mapping as Mapper's, which builds
 // them from the groups' attributes, the record of who is in what.

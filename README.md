@@ -17,9 +17,13 @@ A campaign has no record of its own. It is a slug that three systems agree on:
 ## Who can do what
 
 Callers send an authentik access token for this service's provider as a
-bearer token, which `mpr login` gets them. Roles come from the token's
-`campaigns` and `mapper_admin` claims, which are built from the groups'
-attributes.
+bearer token, which `mpr login` gets them. The service checks the token's
+signature, issuer and audience, then asks authentik's userinfo endpoint about
+it, so a token stops working as soon as it is revoked or its user is
+deactivated. Roles come from the userinfo's `campaigns` and `mapper_admin`
+claims, which authentik builds from the groups' attributes on every request,
+so a change to someone's groups counts at once, however long their token
+lasts.
 
 A person can be in several campaigns with a different role in each, so every
 check is made for one campaign:
@@ -40,7 +44,7 @@ changed.
 |---------|------|--------|
 | `GET /healthz` | | `ok`, no token needed |
 | `GET /auth` | | how to get a token: `issuer`, `client_id` and `scopes`. No token needed |
-| `GET /me` | | the caller, as their token describes them |
+| `GET /me` | | the caller, as authentik describes them now |
 | `POST /campaigns` | `{"slug": "dragons", "name": "Here Be Dragons"}` | 201 with the groups and the pages copied in; 200 if the campaign already existed and only missing pieces were added |
 | `POST /campaigns/{slug}/members` | `{"email": "...", "role": "mapper" or "officer", "username": "...", "name": "..."}` | 200 with `status` `added` or `invited` |
 
@@ -67,8 +71,9 @@ other pending invitations and deletes those. It also removes expired
 invitations. It only touches invitations whose names start `campaign-`.
 
 Errors are `{"error": "..."}` with 400 (bad request), 401 (no or bad token),
-403 (not allowed), 404 (no such campaign) or 409 (already in or invited).
-Anything else is a 500 whose details go to the log only.
+403 (not allowed), 404 (no such campaign), 409 (already in or invited) or 503
+(authentik could not be asked about the token). Anything else is a 500 whose
+details go to the log only.
 
 ## mpr
 
@@ -83,9 +88,8 @@ mpr invite dragons someone@example.com --role officer
 opened on any machine, and waits while you log in there. It asks the server
 for the provider and scopes through `GET /auth`, so the server's address is
 the only thing mpr needs to know, and the first server you log in to becomes
-the default. `mpr logout` revokes the login's tokens at authentik. The
-server checks access tokens itself, so the last one still works there until
-it expires, after authentik's access token validity (5 minutes by default).
+the default. `mpr logout` revokes the login's tokens at authentik, so they
+stop working at once.
 
 The server comes from `--server`, then `MPR_SERVER`, then the config file,
 `mpr/config.json` in your config directory (`~/.config` on Linux), or
@@ -126,9 +130,9 @@ A JSON file given with `--config`; see `config.example.json`.
 
 **In authentik:**
 
-- An OAuth2 provider and application for the service, with
-  `include_claims_in_id_token` on. authentik's access tokens carry the
-  ID token's claims, which this needs. For `mpr`, the provider is a public
+- An OAuth2 provider and application for the service. Callers are read
+  from its userinfo endpoint, not from the token, so
+  `include_claims_in_id_token` can be off. For `mpr`, the provider is a public
   client with the device code and refresh token grants, and the
   `offline_access` scope. Its `access_code_validity` is how long someone has
   to finish logging in, so a minute, the default, is too short.

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +17,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/pixil98/campaign-manager/internal/api"
+	"github.com/pixil98/campaign-manager/internal/auth"
 	"github.com/pixil98/campaign-manager/internal/campaign"
 )
 
@@ -130,7 +130,7 @@ type fakeAuth struct{}
 
 func (fakeAuth) Caller(_ context.Context, token string) (campaign.Caller, error) {
 	if !strings.HasPrefix(token, "access-") {
-		return campaign.Caller{}, errors.New("bad token")
+		return campaign.Caller{}, fmt.Errorf("%w: not one of ours", auth.ErrInvalidToken)
 	}
 	return olive, nil
 }

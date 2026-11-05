@@ -2,7 +2,7 @@
 //
 //	GET  /healthz                    liveness, no token needed
 //	GET  /auth                       how to get a token the API takes, no token needed
-//	GET  /me                         the caller, as their token describes them
+//	GET  /me                         the caller, as authentik describes them now
 //	POST /campaigns                  create a campaign (admins)
 //	POST /campaigns/{slug}/members   add or invite a person (admins, the campaign's officers)
 //
@@ -20,10 +20,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pixil98/campaign-manager/internal/auth"
 	"github.com/pixil98/campaign-manager/internal/campaign"
 )
 
-// Authenticator reads the caller from a bearer token.
+// Authenticator reads the caller from a bearer token. A token that is no
+// good is an error wrapping auth.ErrInvalidToken; any other error means the
+// token could not be checked.
 type Authenticator interface {
 	Caller(ctx context.Context, token string) (campaign.Caller, error)
 }
@@ -137,8 +140,9 @@ func (h *handlers) invite(w http.ResponseWriter, r *http.Request, caller campaig
 }
 
 // authenticated runs next for the caller its bearer token names, and answers
-// 401 without one, or with a token that does not verify.
-func authenticated(auth Authenticator, next func(http.ResponseWriter, *http.Request, campaign.Caller)) http.Handler {
+// 401 without one, or with a token that does not verify, and 503 when the
+// token cannot be checked, which says nothing about the token.
+func authenticated(authn Authenticator, next func(http.ResponseWriter, *http.Request, campaign.Caller)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if !ok || token == "" {
@@ -146,11 +150,16 @@ func authenticated(auth Authenticator, next func(http.ResponseWriter, *http.Requ
 			writeJSON(w, http.StatusUnauthorized, errorBody{"a bearer token is required"})
 			return
 		}
-		caller, err := auth.Caller(r.Context(), token)
-		if err != nil {
+		caller, err := authn.Caller(r.Context(), token)
+		switch {
+		case errors.Is(err, auth.ErrInvalidToken):
 			slog.InfoContext(r.Context(), "rejected token", "error", err)
 			w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
 			writeJSON(w, http.StatusUnauthorized, errorBody{"the token is not valid"})
+			return
+		case err != nil:
+			slog.ErrorContext(r.Context(), "checking token", "error", err)
+			writeJSON(w, http.StatusServiceUnavailable, errorBody{"the token could not be checked with authentik; try again shortly"})
 			return
 		}
 		if rec, ok := w.(*recorder); ok {

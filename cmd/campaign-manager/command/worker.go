@@ -23,11 +23,13 @@ func BuildWorkers(config any) (service.WorkerList, error) {
 		return nil, errors.New("unable to cast config")
 	}
 
+	hc := &http.Client{Timeout: 30 * time.Second}
+
 	// Discovery fetches the issuer's keys now, so a wrong issuer stops the
 	// service at start rather than failing every request.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	verifier, err := auth.NewVerifier(ctx, cfg.OIDC.Issuer, cfg.OIDC.ClientId)
+	verifier, err := auth.NewVerifier(ctx, cfg.OIDC.Issuer, cfg.OIDC.ClientId, hc)
 	if err != nil {
 		return nil, fmt.Errorf("oidc: %w", err)
 	}
@@ -41,7 +43,6 @@ func BuildWorkers(config any) (service.WorkerList, error) {
 		return nil, fmt.Errorf("wiki: %w", err)
 	}
 
-	hc := &http.Client{Timeout: 30 * time.Second}
 	dir, err := authentik.New(cfg.Authentik.URL, authentikToken, hc)
 	if err != nil {
 		return nil, fmt.Errorf("authentik: %w", err)

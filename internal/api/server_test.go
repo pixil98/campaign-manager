@@ -10,16 +10,21 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pixil98/campaign-manager/internal/auth"
 	"github.com/pixil98/campaign-manager/internal/campaign"
 )
 
-// fakeAuth accepts only the tokens it holds.
+// fakeAuth accepts only the tokens it holds, and cannot reach authentik to
+// check the token "unchecked".
 type fakeAuth map[string]campaign.Caller
 
 func (a fakeAuth) Caller(_ context.Context, token string) (campaign.Caller, error) {
+	if token == "unchecked" {
+		return campaign.Caller{}, errors.New("authentik is down")
+	}
 	c, ok := a[token]
 	if !ok {
-		return campaign.Caller{}, errors.New("bad token")
+		return campaign.Caller{}, fmt.Errorf("%w: not one of ours", auth.ErrInvalidToken)
 	}
 	return c, nil
 }
@@ -89,6 +94,10 @@ func TestRoutes(t *testing.T) {
 		"a bad token": {
 			method: "POST", path: "/campaigns", token: "bad", body: `{"slug": "epic"}`,
 			wantStatus: http.StatusUnauthorized, wantBody: "not valid",
+		},
+		"a token authentik cannot check": {
+			method: "POST", path: "/campaigns", token: "unchecked", body: `{"slug": "epic"}`,
+			wantStatus: http.StatusServiceUnavailable, wantBody: "could not be checked",
 		},
 		"who am I": {
 			method: "GET", path: "/me", token: "good",

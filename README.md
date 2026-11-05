@@ -1,8 +1,7 @@
 # campaign-manager
 
 Creates campaigns and invites people into them, across authentik and the
-wiki. The design it implements is `CAMPAIGN_SERVICE.md` in the `ugre` branch
-of homelab-deployments.
+wiki. `mpr` is its command line.
 
 A campaign has no record of its own. It is a slug that three systems agree on:
 
@@ -18,8 +17,9 @@ A campaign has no record of its own. It is a slug that three systems agree on:
 ## Who can do what
 
 Callers send an authentik access token for this service's provider as a
-bearer token. Roles come from the token's `campaigns` and `mapper_admin`
-claims, which are built from the groups' attributes.
+bearer token, which `mpr login` gets them. Roles come from the token's
+`campaigns` and `mapper_admin` claims, which are built from the groups'
+attributes.
 
 A person can be in several campaigns with a different role in each, so every
 check is made for one campaign:
@@ -39,8 +39,9 @@ changed.
 | Request | Body | Answer |
 |---------|------|--------|
 | `GET /healthz` | | `ok`, no token needed |
+| `GET /auth` | | how to get a token: `issuer`, `client_id` and `scopes`. No token needed |
 | `GET /me` | | the caller, as their token describes them |
-| `POST /campaigns` | `{"slug": "epic", "name": "Real name"}` | 201 with the groups and the pages copied in; 200 if the campaign already existed and only missing pieces were added |
+| `POST /campaigns` | `{"slug": "dragons", "name": "Here Be Dragons"}` | 201 with the groups and the pages copied in; 200 if the campaign already existed and only missing pieces were added |
 | `POST /campaigns/{slug}/members` | `{"email": "...", "role": "mapper" or "officer", "username": "...", "name": "..."}` | 200 with `status` `added` or `invited` |
 
 `username` and `name` are optional suggestions a new account's sign-up form
@@ -69,6 +70,35 @@ Errors are `{"error": "..."}` with 400 (bad request), 401 (no or bad token),
 403 (not allowed), 404 (no such campaign) or 409 (already in or invited).
 Anything else is a 500 whose details go to the log only.
 
+## mpr
+
+```sh
+mpr login --server https://campaigns.example.com
+mpr whoami
+mpr campaign create dragons --name "Here Be Dragons"
+mpr invite dragons someone@example.com --role officer
+```
+
+`mpr login` uses authentik's device code login. It prints a link, which can be
+opened on any machine, and waits while you log in there. It asks the server
+for the provider and scopes through `GET /auth`, so the server's address is
+the only thing mpr needs to know, and the first server you log in to becomes
+the default. `mpr logout` revokes the login's tokens at authentik.
+
+The server comes from `--server`, then `MPR_SERVER`, then the config file,
+`mpr/config.json` in your config directory (`~/.config` on Linux), or
+`--config` or `MPR_CONFIG` for another. `mpr config set server <url>` changes
+it. Logins are kept in `credentials.json` beside the config, readable only by
+you, one per server, and are refreshed and saved again as their access tokens
+run out.
+
+Results that scripts might read take `--json`. `mpr completion` prints shell
+completions.
+
+Releases for Linux, macOS and Windows are built by GoReleaser when a `v*` tag
+is pushed. `go install github.com/pixil98/campaign-manager/cmd/mpr@latest`
+works as well.
+
 ## Configuration
 
 A JSON file given with `--config`; see `config.example.json`.
@@ -96,20 +126,25 @@ A JSON file given with `--config`; see `config.example.json`.
 
 - An OAuth2 provider and application for the service, with
   `include_claims_in_id_token` on. authentik's access tokens carry the
-  ID token's claims, which this needs.
+  ID token's claims, which this needs. For `mpr`, the provider is a public
+  client with the device code and refresh token grants, and the
+  `offline_access` scope. Its `access_code_validity` is how long someone has
+  to finish logging in, so a minute, the default, is too short.
+- A device code flow on the brand. authentik's device page answers 404
+  without one. An empty flow will do; authentik adds the code entry itself.
 - A scope mapping on that provider emitting `campaigns` and `mapper_admin`,
-  the same expression as `Mapper - groups` in
-  `manifests/authentik/mapper_provider.yaml`.
+  built from the campaign groups' `campaign` and `role` attributes, as
+  Mapper's own groups mapping is.
 - A service account with an API token, and a role that can read users,
   create groups and change their membership, and create, send and delete
   invitations.
-- The campaign enrollment flow. Until it exists, the generic
-  `invitation-enrollment` flow from flux-core works the same way.
+- The enrollment flow invitations use, with an invitation stage that
+  continues without an invitation off, so only invitees can sign up.
 
 **In the wiki:**
 
-- `remote = 1` and `remoteuser` naming the service's account, in
-  `manifests/wiki/dokuwiki_config.yaml`. The account must also be in
+- `remote = 1` and `remoteuser` naming the service's account, in DokuWiki's
+  `conf/local.protected.php`. The account must also be in
   `superuser`, since only a superuser can add ACL rules.
 - An entry for the account in `conf/users.auth.php`, with its group. The
   password field can be `!`: DokuWiki checks the API token before any other

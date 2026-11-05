@@ -314,6 +314,15 @@ func TestLoginNotFinished(t *testing.T) {
 	}
 }
 
+func TestLoginToSomethingElse(t *testing.T) {
+	e := newTestEnv(t)
+
+	_, _, err := e.run(t, "login", "--server", e.authentik.URL)
+	if want := e.authentik.URL + " does not look like a campaign-manager server"; err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("login error = %v, want it to contain %q", err, want)
+	}
+}
+
 func TestLoginKeepsTheDefault(t *testing.T) {
 	e := newTestEnv(t)
 	if err := (&Config{Server: "https://campaigns.example.com"}).save(e.config); err != nil {

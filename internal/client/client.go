@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"strings"
@@ -29,13 +30,17 @@ func New(server string, hc *http.Client) *Client {
 	return &Client{server: strings.TrimSuffix(server, "/"), hc: hc}
 }
 
-// Error is an answer from the API other than success.
+// Error is an answer from the API other than success. Message is what the
+// server said, if anything worth showing.
 type Error struct {
 	Status  int
 	Message string
 }
 
 func (e *Error) Error() string {
+	if e.Message == "" {
+		return fmt.Sprintf("the server answered %d %s", e.Status, http.StatusText(e.Status))
+	}
 	return fmt.Sprintf("%s (%d %s)", e.Message, e.Status, http.StatusText(e.Status))
 }
 
@@ -111,11 +116,12 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 }
 
 // maxErrorText bounds how much of an answer that is not the API's own, such
-// as a proxy's error page, ends up in an error.
+// as a proxy's error text, ends up in an error.
 const maxErrorText = 200
 
 // readError reads the API's {"error": "..."} answer, or failing that, the
-// start of whatever was answered instead.
+// start of a plain text answer. Anything else, such as an HTML error page,
+// is no use in a terminal, so only the status is kept.
 func readError(resp *http.Response) error {
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	var body struct {
@@ -124,12 +130,12 @@ func readError(resp *http.Response) error {
 	if json.Unmarshal(data, &body) == nil && body.Error != "" {
 		return &Error{Status: resp.StatusCode, Message: body.Error}
 	}
+	if mediaType, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type")); mediaType != "text/plain" {
+		return &Error{Status: resp.StatusCode}
+	}
 	text := strings.TrimSpace(string(data))
 	if len(text) > maxErrorText {
 		text = text[:maxErrorText] + "..."
-	}
-	if text == "" {
-		text = "the server answered " + resp.Status
 	}
 	return &Error{Status: resp.StatusCode, Message: text}
 }

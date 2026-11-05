@@ -49,6 +49,10 @@ func (a *app) login(cmd *cobra.Command) error {
 
 	info, err := client.New(server, a.hc).Login(ctx)
 	if err != nil {
+		var apiErr *client.Error
+		if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound {
+			return fmt.Errorf("%s does not look like a campaign-manager server: %w", server, err)
+		}
 		return fmt.Errorf("asking %s how to log in: %w", server, err)
 	}
 	provider, err := oidc.NewProvider(ctx, info.Issuer)
@@ -128,7 +132,9 @@ func newLogoutCmd(a *app) *cobra.Command {
 		Use:   "logout",
 		Short: "Log out of a campaign-manager server",
 		Long: `Log out of a campaign-manager server. The login's tokens are revoked at
-authentik as well as forgotten here, so a copy of them is no use either.`,
+authentik as well as forgotten here, so a copy of them cannot get new access
+tokens. The server checks access tokens itself, so a copy of the last one
+still works there until it expires, a few minutes after it was issued.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return a.logout(cmd)
@@ -173,8 +179,9 @@ func (a *app) logout(cmd *cobra.Command) error {
 }
 
 // revoke ends login at authentik: the refresh token, so it cannot be used
-// for new access tokens, and the access token, so it stops working now
-// rather than when it expires.
+// for new access tokens, and the access token, so authentik stops taking it.
+// campaign-manager checks access tokens itself, without asking authentik, so
+// there the access token works until it expires.
 func (a *app) revoke(ctx context.Context, login *savedLogin) error {
 	provider, err := oidc.NewProvider(oidc.ClientContext(ctx, a.hc), login.Issuer)
 	if err != nil {

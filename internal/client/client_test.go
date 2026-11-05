@@ -14,30 +14,36 @@ import (
 func TestErrors(t *testing.T) {
 	tests := map[string]struct {
 		status      int
+		contentType string
 		body        string
-		wantMessage string
+		wantError   string
 	}{
 		"the API's own error": {
-			status: http.StatusForbidden, body: `{"error": "not allowed: only an admin can create a campaign"}`,
-			wantMessage: "not allowed: only an admin can create a campaign",
+			status: http.StatusForbidden, contentType: "application/json", body: `{"error": "not allowed: only an admin can create a campaign"}`,
+			wantError: "not allowed: only an admin can create a campaign (403 Forbidden)",
 		},
-		"a proxy's page": {
-			status: http.StatusBadGateway, body: "<html>bad gateway</html>",
-			wantMessage: "<html>bad gateway</html>",
+		"a proxy's text": {
+			status: http.StatusBadGateway, contentType: "text/plain; charset=utf-8", body: "Bad Gateway\n",
+			wantError: "Bad Gateway (502 Bad Gateway)",
 		},
-		"a long page is cut short": {
-			status: http.StatusBadGateway, body: strings.Repeat("x", 500),
-			wantMessage: strings.Repeat("x", maxErrorText) + "...",
+		"a long text is cut short": {
+			status: http.StatusBadGateway, contentType: "text/plain", body: strings.Repeat("x", 500),
+			wantError: strings.Repeat("x", maxErrorText) + "... (502 Bad Gateway)",
+		},
+		"a page is left out": {
+			status: http.StatusNotFound, contentType: "text/html", body: "<html>not found</html>",
+			wantError: "the server answered 404 Not Found",
 		},
 		"nothing at all": {
-			status:      http.StatusServiceUnavailable,
-			wantMessage: "the server answered 503 Service Unavailable",
+			status:    http.StatusServiceUnavailable,
+			wantError: "the server answered 503 Service Unavailable",
 		},
 	}
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", tt.contentType)
 				w.WriteHeader(tt.status)
 				_, _ = w.Write([]byte(tt.body))
 			}))
@@ -45,11 +51,11 @@ func TestErrors(t *testing.T) {
 
 			_, err := New(srv.URL, srv.Client()).Me(context.Background())
 			var apiErr *Error
-			if !errors.As(err, &apiErr) {
-				t.Fatalf("Me() error = %v, want an *Error", err)
+			if !errors.As(err, &apiErr) || apiErr.Status != tt.status {
+				t.Fatalf("Me() error = %#v, want an *Error with status %d", err, tt.status)
 			}
-			if apiErr.Status != tt.status || apiErr.Message != tt.wantMessage {
-				t.Errorf("Me() error = %d %q, want %d %q", apiErr.Status, apiErr.Message, tt.status, tt.wantMessage)
+			if err.Error() != tt.wantError {
+				t.Errorf("Me() error = %q, want %q", err.Error(), tt.wantError)
 			}
 		})
 	}

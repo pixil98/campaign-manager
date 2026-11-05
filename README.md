@@ -83,7 +83,9 @@ mpr invite dragons someone@example.com --role officer
 opened on any machine, and waits while you log in there. It asks the server
 for the provider and scopes through `GET /auth`, so the server's address is
 the only thing mpr needs to know, and the first server you log in to becomes
-the default. `mpr logout` revokes the login's tokens at authentik.
+the default. `mpr logout` revokes the login's tokens at authentik. The
+server checks access tokens itself, so the last one still works there until
+it expires, after authentik's access token validity (5 minutes by default).
 
 The server comes from `--server`, then `MPR_SERVER`, then the config file,
 `mpr/config.json` in your config directory (`~/.config` on Linux), or
